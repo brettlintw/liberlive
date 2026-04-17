@@ -2,89 +2,114 @@ import streamlit as st
 import re
 import pdfplumber
 from docx import Document
+from PIL import Image
 
-# --- 1. 配色與樣式定義 ---
+# --- 1. 介面設定與 CSS 注入 ---
 st.set_page_config(page_title="Liberlive Pro - Brett", layout="wide")
 
-# 定義顏色標籤 (要求 10)
-def get_colored_html(chord):
-    # 邏輯: 如果是 G/B，抓前面那個 G
-    main_chord = chord.split('/')[0]
-    first_char = main_chord[0].upper()
-    
-    color_map = {
-        'A': '#1D4ED8', # 10-1 深藍色 (六級)
-        'F': '#22C55E', # 10-2 綠色 (四級)
-        'E': '#EAB308', # 10-3 黃色 (三級)
-        'G': '#3B82F6', # 10-4 藍色 (五級)
-        'C': '#EF4444', # 10-5 紅色 (一級)
-        'D': '#F97316', # 10-6 橘色 (二級)
-        'B': '#A855F7'  # 10-7 紫色 (七級)
+# 強制注入 CSS 樣式確保顏色類別存在
+st.markdown("""
+    <style>
+    .chord-A { color: #1D4ED8 !important; font-weight: bold; }
+    .chord-F { color: #22C55E !important; font-weight: bold; }
+    .chord-E { color: #EAB308 !important; font-weight: bold; }
+    .chord-G { color: #3B82F6 !important; font-weight: bold; }
+    .chord-C { color: #EF4444 !important; font-weight: bold; }
+    .chord-D { color: #F97316 !important; font-weight: bold; }
+    .chord-B { color: #A855F7 !important; font-weight: bold; }
+    .output-container { 
+        background-color: #F0F4F8; 
+        padding: 25px; 
+        border-radius: 12px; 
+        line-height: 2.2; 
+        font-family: 'Courier New', monospace; 
+        white-space: pre-wrap;
+        color: #333;
     }
-    color = color_map.get(first_char, "#333333") # 沒匹配到則用深灰色
-    return f'<span style="color:{color}; font-weight:bold; font-size:1.1em;">[{chord}]</span>'
+    </style>
+    """, unsafe_allow_html=True)
 
-# --- 2. 移調邏輯 ---
+# --- 2. 顏色邏輯函數 (要求 10) ---
+def apply_color_html(text):
+    # 正則表達式匹配 [Chord]
+    pattern = r'\[([^\]]+)\]'
+    
+    def replace_with_html(match):
+        chord = match.group(1)
+        # 處理 G/B，抓第一個字母
+        first_char = chord.split('/')[0][0].upper()
+        # 對應 10-1 到 10-7 的顏色類別
+        return f'<span class="chord-{first_char}">[{chord}]</span>'
+    
+    return re.sub(pattern, replace_with_html, text)
+
+# --- 3. 移調邏輯 (要求 9) ---
 KEYS = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B']
 
 def transpose_chord(chord, steps):
     match = re.match(r"([A-G][#b]?)", chord)
     if not match: return chord
-    root = match.group(1)
-    suffix = chord[len(root):]
-    norm_keys = {'Db':'C#', 'Eb':'D#', 'Gb':'F#', 'Ab':'G#', 'Bb':'A#'}
-    lookup_keys = [norm_keys.get(k, k) for k in KEYS]
-    root = norm_keys.get(root, root)
-    if root in lookup_keys:
-        new_idx = (lookup_keys.index(root) + steps) % 12
+    root, suffix = match.group(1), chord[len(match.group(1)):]
+    norm = {'Db':'C#', 'Eb':'D#', 'Gb':'F#', 'Ab':'G#', 'Bb':'A#'}
+    lookup = [norm.get(k, k) for k in KEYS]
+    root = norm.get(root, root)
+    if root in lookup:
+        new_idx = (lookup.index(root) + steps) % 12
         return KEYS[new_idx] + suffix
     return chord
 
-# --- 3. 介面設計 ---
+# --- 4. 多格式讀取 (要求 7) ---
+def extract_text_from_file(file):
+    if file.type == "text/plain":
+        return file.read().decode("utf-8")
+    elif file.type == "application/pdf":
+        with pdfplumber.open(file) as pdf:
+            return "\n".join([p.extract_text() for p in pdf.pages if p.extract_text()])
+    elif file.type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+        doc = Document(file)
+        return "\n".join([para.text for para in doc.paragraphs])
+    elif file.type in ["image/png", "image/jpeg"]:
+        st.warning("📸 偵測到圖片！目前的雲端環境建議先使用手機 OCR 功能轉為文字貼入，或待後續串接 Google OCR API。")
+        return ""
+    return ""
+
+# --- 5. UI 介面 ---
 st.sidebar.title("🎸 Brett Music Tech")
-st.sidebar.info("編程者: Brett | 版本: v3.7")
+st.sidebar.markdown("**編程者:** Brett | **版本:** v4.0")
 
 st.title("Liberlive 智能轉譜系統")
 
 # 調性選擇
 c1, c2 = st.columns(2)
-with c1:
-    orig_key = st.selectbox("🎼 原曲調性", KEYS, index=0)
-with c2:
-    target_key = st.selectbox("🎹 目標調性 (C2)", KEYS, index=0)
+with c1: orig_key = st.selectbox("🎼 原曲調性", KEYS, index=0)
+with c2: target_key = st.selectbox("🎹 目標調性 (C2)", KEYS, index=0)
 
 # 輸入區
-manual_text = st.text_area("✍️ 請貼上帶有中括號 [和弦] 的歌詞：", height=200)
+uploaded_file = st.file_uploader("📁 上傳譜面 (文字, PDF, Word, 圖片)", type=['txt', 'pdf', 'docx', 'png', 'jpg'])
+manual_text = st.text_area("✍️ 直接貼上文字內容：", height=150)
 
 if st.button("🚀 執行智能轉換"):
-    if manual_text:
+    raw_content = extract_text_from_file(uploaded_file) if uploaded_file else manual_text
+    
+    if raw_content:
         steps = (KEYS.index(target_key) - KEYS.index(orig_key)) % 12
         
-        # 第一步：移調處理 (保留中括號)
+        # 移調處理
         def process_match(match):
             c = match.group(1)
             if '/' in c:
                 return "/".join([transpose_chord(p.strip(), steps) for p in c.split('/')])
             return transpose_chord(c, steps)
         
-        # 移調後的純文本
-        transposed_text = re.sub(r'\[([^\]]+)\]', process_match, manual_text)
+        transposed_text = re.sub(r'\[([^\]]+)\]', process_match, raw_content)
         
-        # 第二步：上色處理 (轉為 HTML)
-        # 我們要把 [C] 變成 <span style="color:red">[C]</span>
-        final_html = re.sub(r'\[([^\]]+)\]', lambda m: get_colored_html(m.group(1)), transposed_text)
+        # 加上顏色標籤
+        colored_html = apply_color_html(transposed_text)
 
-        # 顯示結果
         st.subheader("✅ 最終 Liberlive 彩色譜")
+        # 關鍵：使用 HTML 容器封裝
+        st.write(f'<div class="output-container">{colored_html}</div>', unsafe_allow_html=True)
         
-        # 關鍵在於這個 unsafe_allow_html=True
-        st.markdown(f'''
-            <div style="background-color: #F0F4F8; padding: 25px; border-radius: 12px; border: 1px solid #D1D5DB; line-height: 2.2; font-family: monospace; white-space: pre-wrap;">
-                {final_html}
-            </div>
-            ''', unsafe_allow_html=True)
-        
-        # 下載功能 (純文本版供貼入 App)
-        st.download_button("💾 下載純文本譜 (供貼入 App)", transposed_text, file_name=f"Brett_Score_{target_key}.txt")
+        st.download_button("💾 下載純文本譜 (貼入 App)", transposed_text, file_name=f"Brett_{target_key}.txt")
     else:
-        st.error("請先輸入內容！")
+        st.error("請提供輸入內容！")
