@@ -13,23 +13,21 @@ CHORD_COLORS = {
 }
 KEYS = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B']
 
-st.set_page_config(page_title="Liberlive Pro Master v15.1", layout="wide")
+st.set_page_config(page_title="Liberlive Pro Master v15.2", layout="wide")
 
-# 數據鎖定緩存
+# 數據鎖定緩存 (Buffer)
 if 'buffer' not in st.session_state: st.session_state.buffer = ""
 if 'my_lib' not in st.session_state: st.session_state.my_lib = {}
 if 'yt' not in st.session_state: st.session_state.yt = ""
 
-# --- 2. 視覺配色與開關修復 CSS ---
+# --- 2. 視覺配色 CSS ---
 st.markdown("""
     <style>
-    /* 移除頂部空白，但保留左上角開關按鈕可見性 */
-    .block-container { padding-top: 0.5rem !important; padding-bottom: 0rem !important; }
+    /* 移除頂部空白，保留開關按鈕 */
+    .block-container { padding-top: 1rem !important; padding-bottom: 0rem !important; }
+    header { background-color: transparent !important; }
     
-    /* 隱藏原生頁面標題，但不遮擋系統選單 */
-    [data-testid="stHeader"] { background-color: transparent !important; }
-    
-    /* 側邊欄配色強化 */
+    /* 側邊欄配色 */
     section[data-testid="stSidebar"] { background-color: #1E3A8A !important; border-right: 3px solid #FACC15; }
     section[data-testid="stSidebar"] * { color: white !important; }
 
@@ -72,7 +70,7 @@ def transpose_chord(chord, steps):
     return chord
 
 def render_html_master(text):
-    if not text: return "<div style='text-align:center; color:gray; padding:30px;'>請載入或輸入內容</div>"
+    if not text: return "<div style='text-align:center; color:gray; padding:30px;'>目前無內容</div>"
     text = re.sub(r'\[(前奏|Intro|主歌|Verse|副歌|Chorus|間奏|Bridge|結尾|Outro)\]', r'<div class="section-tag">📍 \1</div>', text)
     parts = re.split(r'(\[[^\]]+\])', text)
     res, cur_cls = "", ""
@@ -86,21 +84,8 @@ def render_html_master(text):
             res += f'{p}</span>' if cur_cls else p
     return res
 
-def export_docx(text, title):
-    doc = Document(); doc.add_heading(title, 0); p = doc.add_paragraph()
-    parts = re.split(r'(\[[^\]]+\])', text)
-    cur_rgb = None
-    for part in parts:
-        if part.startswith('[') and part.endswith(']'):
-            char = part.split('/')[0][1].upper()
-            cur_rgb = CHORD_COLORS.get(char, (0,0,0))
-            run = p.add_run(part); run.bold = True
-        else: run = p.add_run(part)
-        if cur_rgb: run.font.color.rgb = RGBColor(*cur_rgb)
-    buf = io.BytesIO(); doc.save(buf); return buf.getvalue()
-
 # --- 4. 介面呈現 ---
-st.sidebar.title("🎸 Brett Pro v15.1")
+st.sidebar.title("🎸 Brett Pro v15.2")
 view_mode = st.sidebar.radio("⏱️ 模式選擇", ["工作站模式", "演出模式"])
 scroll_spd = st.sidebar.slider("📜 自動滾動", 0, 15, 0)
 
@@ -119,22 +104,23 @@ else:
     with t1:
         edit_col, view_col = st.columns([1, 1])
         with edit_col:
-            song_name = st.text_input("歌曲標題", "New Song", label_visibility="collapsed")
-            raw_input = st.text_area("內容輸入", height=450, value=st.session_state.buffer)
+            song_name = st.text_input("歌曲標題", "New Song")
+            # 關鍵修復：移除 on_change，直接使用 value 綁定 buffer
+            st.session_state.buffer = st.text_area("內容輸入區", height=450, value=st.session_state.buffer)
+            
             btn_col1, btn_col2 = st.columns(2)
             if btn_col1.button("🚀 執行轉換"):
                 steps = (KEYS.index(tk) - KEYS.index(ok)) % 12
-                st.session_state.buffer = re.sub(r'\[([^\]]+)\]', lambda m: transpose_chord(m.group(1), steps), raw_input)
+                st.session_state.buffer = re.sub(r'\[([^\]]+)\]', lambda m: transpose_chord(m.group(1), steps), st.session_state.buffer)
                 st.rerun()
             if btn_col2.button("⭐ 收藏此曲"):
-                st.session_state.my_lib[song_name] = {"content": st.session_state.buffer, "date": str(datetime.datetime.now())}
+                st.session_state.my_lib[song_name] = {"content": st.session_state.buffer}
                 st.toast("✅ 已收藏")
         with view_col:
             st.markdown(f'<div class="chord-view">{render_html_master(st.session_state.buffer)}</div>', unsafe_allow_html=True)
-            st.download_button("💾 下載 Word", export_docx(st.session_state.buffer, song_name), f"{song_name}.docx")
 
     with t2:
-        st.session_state.yt = st.text_input("YouTube 網址", value=st.session_state.yt, label_visibility="collapsed")
+        st.session_state.yt = st.text_input("YouTube 網址", value=st.session_state.yt)
         if st.session_state.yt:
             st.video(st.session_state.yt)
         st.markdown(f'<div class="chord-view">{render_html_master(st.session_state.buffer)}</div>', unsafe_allow_html=True)
@@ -142,7 +128,6 @@ else:
     with t3:
         if st.session_state.my_lib:
             for name in st.session_state.my_lib.keys():
-                # 關鍵修正：載入後強迫 rerun 刷新介面
                 if st.button(f"📖 載入 {name}"):
                     st.session_state.buffer = st.session_state.my_lib[name]['content']
                     st.rerun()
