@@ -13,46 +13,43 @@ CHORD_COLORS = {
 }
 KEYS = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B']
 
-st.set_page_config(page_title="Liberlive Pro Master v15.0", layout="wide")
+st.set_page_config(page_title="Liberlive Pro Master v15.1", layout="wide")
 
 # 數據鎖定緩存
 if 'buffer' not in st.session_state: st.session_state.buffer = ""
 if 'my_lib' not in st.session_state: st.session_state.my_lib = {}
 if 'yt' not in st.session_state: st.session_state.yt = ""
 
-# --- 2. 極致置頂與配色 CSS ---
+# --- 2. 視覺配色與開關修復 CSS ---
 st.markdown("""
     <style>
-    /* 徹底移除頂部空白 */
-    .block-container { padding-top: 0rem !important; padding-bottom: 0rem !important; }
-    header { visibility: hidden !important; height: 0px !important; }
-    footer { visibility: hidden !important; }
+    /* 移除頂部空白，但保留左上角開關按鈕可見性 */
+    .block-container { padding-top: 0.5rem !important; padding-bottom: 0rem !important; }
     
-    /* 全域背景 */
-    .stApp { background-color: #F8FAFC; }
+    /* 隱藏原生頁面標題，但不遮擋系統選單 */
+    [data-testid="stHeader"] { background-color: transparent !important; }
     
-    /* 側邊欄 (深藍) */
+    /* 側邊欄配色強化 */
     section[data-testid="stSidebar"] { background-color: #1E3A8A !important; border-right: 3px solid #FACC15; }
     section[data-testid="stSidebar"] * { color: white !important; }
 
-    /* 分頁標籤置頂樣式 */
+    /* 分頁標籤樣式 */
     .stTabs [data-baseweb="tab-list"] { background-color: #1E3A8A; border-radius: 5px; padding: 2px; }
-    .stTabs [data-baseweb="tab"] { color: #22C55E !important; font-weight: bold; padding: 10px; }
+    .stTabs [data-baseweb="tab"] { color: #22C55E !important; font-weight: bold; }
     .stTabs [aria-selected="true"] { background-color: #FACC15 !important; color: #1E3A8A !important; }
 
-    /* 樂譜容器 (純白底，強制彩色高對比) */
+    /* 樂譜容器 (純白底彩色字) */
     .chord-view { 
-        background-color: #FFFFFF !important; padding: 30px; border-radius: 10px; 
-        border: 2px solid #1E3A8A; line-height: 2.8; font-size: 1.85em; 
+        background-color: #FFFFFF !important; padding: 25px; border-radius: 8px; 
+        border: 2px solid #1E3A8A; line-height: 2.8; font-size: 1.8em; 
         white-space: pre-wrap; color: #000000 !important; font-weight: 500;
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-        margin-top: 5px;
     }
     
     /* 演出模式 */
     .perf-view { background-color: #000000 !important; color: #FFFFFF !important; font-size: 3.2em !important; line-height: 3.5 !important; padding: 50px !important; }
 
-    /* 和弦染色規則 - 強化亮度 */
+    /* 和弦染色規則 */
     .c-A { color: #1D4ED8 !important; font-weight: 800; } .c-F { color: #16A34A !important; font-weight: 800; }
     .c-E { color: #CA8A04 !important; font-weight: 800; } .c-G { color: #2563EB !important; font-weight: 800; }
     .c-C { color: #DC2626 !important; font-weight: 800; } .c-D { color: #EA580C !important; font-weight: 800; }
@@ -76,9 +73,7 @@ def transpose_chord(chord, steps):
 
 def render_html_master(text):
     if not text: return "<div style='text-align:center; color:gray; padding:30px;'>請載入或輸入內容</div>"
-    # 段落標籤
     text = re.sub(r'\[(前奏|Intro|主歌|Verse|副歌|Chorus|間奏|Bridge|結尾|Outro)\]', r'<div class="section-tag">📍 \1</div>', text)
-    # 染色邏輯
     parts = re.split(r'(\[[^\]]+\])', text)
     res, cur_cls = "", ""
     for p in parts:
@@ -104,17 +99,17 @@ def export_docx(text, title):
         if cur_rgb: run.font.color.rgb = RGBColor(*cur_rgb)
     buf = io.BytesIO(); doc.save(buf); return buf.getvalue()
 
-# --- 4. 介面呈現 (極致置頂版面) ---
-st.sidebar.title("🎸 Brett Pro v15.0")
+# --- 4. 介面呈現 ---
+st.sidebar.title("🎸 Brett Pro v15.1")
 view_mode = st.sidebar.radio("⏱️ 模式選擇", ["工作站模式", "演出模式"])
 scroll_spd = st.sidebar.slider("📜 自動滾動", 0, 15, 0)
 
-# 直接顯示設定列 (置頂)
+# 置頂設定列
 c1, c2, c3, c4 = st.columns([1,1,1,2])
 with c1: ok = st.selectbox("原調", KEYS)
 with c2: tk = st.selectbox("目標調", KEYS, index=6)
 with c3: bpm = st.number_input("BPM", 40, 240, 90)
-with c4: st.write("") # 空間預留
+with c4: st.write("")
 
 if view_mode == "演出模式":
     st.markdown(f'<div class="chord-view perf-view">{render_html_master(st.session_state.buffer)}</div>', unsafe_allow_html=True)
@@ -125,7 +120,7 @@ else:
         edit_col, view_col = st.columns([1, 1])
         with edit_col:
             song_name = st.text_input("歌曲標題", "New Song", label_visibility="collapsed")
-            raw_input = st.text_area("內容輸入", height=450, value=st.session_state.buffer, placeholder="在此輸入歌詞和弦...")
+            raw_input = st.text_area("內容輸入", height=450, value=st.session_state.buffer)
             btn_col1, btn_col2 = st.columns(2)
             if btn_col1.button("🚀 執行轉換"):
                 steps = (KEYS.index(tk) - KEYS.index(ok)) % 12
@@ -139,7 +134,7 @@ else:
             st.download_button("💾 下載 Word", export_docx(st.session_state.buffer, song_name), f"{song_name}.docx")
 
     with t2:
-        st.session_state.yt = st.text_input("YouTube 網址", value=st.session_state.yt, label_visibility="collapsed", placeholder="貼上 YouTube 網址...")
+        st.session_state.yt = st.text_input("YouTube 網址", value=st.session_state.yt, label_visibility="collapsed")
         if st.session_state.yt:
             st.video(st.session_state.yt)
         st.markdown(f'<div class="chord-view">{render_html_master(st.session_state.buffer)}</div>', unsafe_allow_html=True)
@@ -147,6 +142,7 @@ else:
     with t3:
         if st.session_state.my_lib:
             for name in st.session_state.my_lib.keys():
+                # 關鍵修正：載入後強迫 rerun 刷新介面
                 if st.button(f"📖 載入 {name}"):
                     st.session_state.buffer = st.session_state.my_lib[name]['content']
                     st.rerun()
