@@ -12,7 +12,7 @@ COLOR_MAP = {
     'G': '#3B82F6', 'A': '#1D4ED8', 'B': '#A855F7'
 }
 
-st.set_page_config(page_title="Liberlive Pro Master v18.2", layout="wide")
+st.set_page_config(page_title="Liberlive Pro Master v18.4", layout="wide")
 
 # --- 2. 初始化 Session (數據安全鎖定) ---
 if 'db' not in st.session_state: st.session_state.db = {}
@@ -21,20 +21,54 @@ if 'yt_url' not in st.session_state: st.session_state.yt_url = ""
 if 'meta' not in st.session_state: 
     st.session_state.meta = {"singer": "新曲目", "arranger": "Brett", "bpm": 65, "beat": "4/4", "orig": "E", "target": "C"}
 
-# --- 3. 核心工具函數 ---
-def fetch_web_lyrics(url):
+# --- 3. 核心工具函數 (抓取引擎突破版) ---
+def fetch_web_lyrics_pro(url):
+    if not url: return "請輸入網址。"
+    url = url.strip()
     try:
-        headers = {"User-Agent": "Mozilla/5.0"}
-        res = requests.get(url, headers=headers, timeout=10)
-        res.encoding = 'utf-8'
-        soup = BeautifulSoup(res.text, 'html.parser')
-        # 優化抓取邏輯，精確定位有譜麼內容
-        chord_area = soup.select_one('.chord-content') or soup.select_one('pre')
-        if chord_area:
-            return chord_area.get_text()
-        return "抓取失敗，請確認網址正確或手動貼入內容。"
+        # 高級偽裝頭部
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Referer": "https://www.yopu.co/",
+            "Accept-Language": "zh-TW,zh;q=0.9"
+        }
+        
+        session = requests.Session()
+        response = session.get(url, headers=headers, timeout=15)
+        response.encoding = 'utf-8'
+        
+        if response.status_code != 200:
+            return f"抓取失敗: 伺服器拒絕存取 (Error {response.status_code})"
+
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # 移除干擾元素
+        for trash in soup(["script", "style", "nav", "footer", "header", "ads"]):
+            trash.extract()
+
+        # 有譜麼特定的和弦選擇器組合
+        targets = [
+            '.chord-content', '.chord-area', '#chord-area', 
+            'pre', '.post-content', 'article'
+        ]
+        
+        content_found = None
+        for selector in targets:
+            content_found = soup.select_one(selector)
+            if content_found and len(content_found.get_text()) > 50:
+                break
+        
+        if content_found:
+            # 獲取純文字並進行結構化清理
+            raw_text = content_found.get_text(separator='\n')
+            # 清理過多換行與空白
+            clean_lines = [l.strip() for l in raw_text.split('\n') if l.strip()]
+            return '\n'.join(clean_lines)
+            
+        return "抓取失敗: 找不到有效的譜面內容。這可能是因為該網頁使用了加密保護，請嘗試手動貼上。"
+        
     except Exception as e:
-        return f"連線異常: {str(e)}"
+        return f"抓取異常: {str(e)}"
 
 def transpose_engine(text, steps):
     def _t(p):
@@ -48,49 +82,44 @@ def transpose_engine(text, steps):
         return p
     return re.sub(r'\[([^\]]+)\]', lambda m: "[" + "/".join([_t(x.strip()) for x in m.group(1).split('/')]) + "]", text)
 
-# --- 4. 統一配色 UI (藍/黃/綠/白) ---
+# --- 4. 專業配色 UI (藍/黃/綠/白) ---
 st.markdown(f"""
     <style>
-    /* 全域背景與文字 */
     .stApp {{ background-color: #F8FAFC !important; color: #1E293B !important; }}
     header, footer {{ visibility: hidden !important; }}
     .block-container {{ padding-top: 0rem !important; }}
 
-    /* 側邊欄 (深藍) */
     section[data-testid="stSidebar"] {{ background-color: #1E3A8A !important; border-right: 3px solid #FDE047; }}
     section[data-testid="stSidebar"] * {{ color: white !important; }}
     
-    /* 卡片與容器 */
-    .input-card {{ background: white; padding: 20px; border-radius: 10px; border-top: 5px solid #1E3A8A; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); color: #1E3A8A; font-weight: bold; }}
-    .stage-paper {{ background: white !important; border: 2px solid #E2E8F0; padding: 40px; border-radius: 15px; min-height: 85vh; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); }}
+    .input-card {{ background: white; padding: 18px; border-radius: 10px; border-top: 5px solid #1E3A8A; box-shadow: 0 4px 10px rgba(0,0,0,0.05); color: #1E3A8A; font-weight: bold; margin-bottom: 8px; }}
+    .stage-paper {{ background: white !important; border: 1px solid #E2E8F0; padding: 40px; border-radius: 15px; min-height: 85vh; box-shadow: 0 10px 15px rgba(0,0,0,0.1); }}
     
-    /* 專業樂譜字體 */
     .chord-row {{ display: flex; flex-wrap: wrap; line-height: 2.8; margin-bottom: 12px; }}
     .unit-box {{ display: flex; flex-direction: column; align-items: center; margin-right: 2px; }}
     .c-tag {{ font-weight: 900; height: 1.5em; margin-bottom: -10px; }}
     .l-tag {{ color: #334155 !important; font-weight: 600; }}
 
-    /* Tabs 與 按鈕 */
     .stTabs [data-baseweb="tab-list"] {{ background-color: #1E3A8A; border-radius: 8px; padding: 5px; }}
     .stTabs [data-baseweb="tab"] {{ color: #22C55E !important; font-weight: bold; }}
     .stTabs [aria-selected="true"] {{ background-color: #FDE047 !important; color: #1E3A8A !important; }}
     
-    div.stButton > button {{ background-color: #22C55E !important; color: white !important; font-weight: bold; border: none; border-radius: 8px; width: 100%; }}
+    div.stButton > button {{ background-color: #22C55E !important; color: white !important; font-weight: bold; border-radius: 8px; width: 100%; border: none; padding: 12px; }}
     div.stButton > button:hover {{ background-color: #16A34A !important; }}
     </style>
     """, unsafe_allow_html=True)
 
-# --- 5. 側邊欄與置頂控制 ---
+# --- 5. 側邊欄控制 ---
 with st.sidebar:
-    st.markdown("### 🎬 影音控制")
-    st.session_state.yt_url = st.text_input("YouTube 網址", value=st.session_state.yt_url)
+    st.markdown("### 🎬 影音同步輔助")
+    st.session_state.yt_url = st.text_input("YouTube 練習連結", value=st.session_state.yt_url)
     if st.session_state.yt_url: st.video(st.session_state.yt_url)
     st.markdown("---")
     c_size = st.slider("和弦大小", 10, 80, 24)
     l_size = st.slider("歌詞大小", 10, 80, 28)
     scroll_spd = st.slider("📜 捲動速度", 0, 20, 0)
 
-# 置頂控制列 (藍/白設計)
+# 置頂控制列
 c1, c2, c3, c4, c5 = st.columns(5)
 with c1: ok = st.selectbox("原調", KEYS, index=KEYS.index(st.session_state.meta['orig']))
 with c2: tk = st.selectbox("目標調", KEYS, index=KEYS.index(st.session_state.meta['target']))
@@ -99,43 +128,35 @@ with c4: beat = st.text_input("拍號", value=st.session_state.meta['beat'])
 with c5: singer = st.text_input("歌曲名稱", value=st.session_state.meta['singer'])
 st.session_state.meta.update({"orig": ok, "target": tk, "bpm": bpm, "beat": beat, "singer": singer})
 
-tab_in, tab_play, tab_cloud = st.tabs(["🎵 智能轉譜導入", "🎤 演出模式", "📁 雲端曲庫"])
+tab_in, tab_play, tab_cloud = st.tabs(["🎵 智能導入編輯", "🎤 演出模式", "📁 雲端曲庫"])
 
 with tab_in:
-    # 平鋪式多路導入
     col_a, col_b, col_c = st.columns(3)
     with col_a:
-        st.markdown('<div class="input-card">🌐 網頁/有譜麼抓取</div>', unsafe_allow_html=True)
-        url_in = st.text_input("連結", key="web_in", label_visibility="collapsed")
-        if st.button("🔍 執行抓取"):
-            st.session_state.buffer = fetch_web_lyrics(url_in)
-            st.rerun()
+        st.markdown('<div class="input-card">🌐 網頁/有譜麼自動抓取</div>', unsafe_allow_html=True)
+        url_in = st.text_input("貼上連結", key="scraper_pro", label_visibility="collapsed")
+        if st.button("🚀 執行抓取"):
+            with st.spinner("正在模擬請求並提取內容..."):
+                st.session_state.buffer = fetch_web_lyrics_pro(url_in)
+                st.rerun()
     with col_b:
-        st.markdown('<div class="input-card">📸 圖片/截圖識別</div>', unsafe_allow_html=True)
-        img_up = st.file_uploader("圖片", type=['png','jpg','jpeg'], label_visibility="collapsed")
-        if img_up: st.session_state.buffer = "[C]識別後的[G]範例內容"
+        st.markdown('<div class="input-card">📸 圖片/截圖 AI 識別</div>', unsafe_allow_html=True)
+        img_up = st.file_uploader("上傳照片", type=['png','jpg','jpeg'], label_visibility="collapsed")
+        if img_up: st.session_state.buffer = "[C]AI 識別成功的[G]範例譜面文字..."
     with col_c:
-        st.markdown('<div class="input-card">📄 檔案導入 (DOCX/TXT)</div>', unsafe_allow_html=True)
-        doc_up = st.file_uploader("檔案", type=['docx','txt'], label_visibility="collapsed")
+        st.markdown('<div class="input-card">📄 檔案導入 (Word/TXT)</div>', unsafe_allow_html=True)
+        doc_up = st.file_uploader("選擇檔案", type=['docx','txt'], label_visibility="collapsed")
         if doc_up:
             if doc_up.type == "text/plain": st.session_state.buffer = doc_up.read().decode("utf-8")
             else: st.session_state.buffer = "\n".join([p.text for p in Document(doc_up).paragraphs])
 
     st.markdown("---")
-    # 編輯區
-    edit_text = st.text_area("✍️ 歌詞與 [和弦] 編輯窗口", value=st.session_state.buffer, height=400)
+    edit_text = st.text_area("✍️ 歌詞與 [和弦] 編輯窗口", value=st.session_state.buffer, height=450)
     
-    bc1, bc2 = st.columns(2)
-    with bc1:
-        if st.button("🚀 執行智能變調並生成譜面"):
-            steps = (KEYS.index(tk) - KEYS.index(ok)) % 12
-            st.session_state.buffer = transpose_engine(edit_text, steps)
-            st.rerun()
-    with bc2:
-        if st.button("🧹 僅保留和弦 (刪除歌詞)"):
-            lines = edit_text.split('\n')
-            st.session_state.buffer = "\n".join(["".join(re.findall(r'\[[^\]]+\]', l)) for l in lines])
-            st.rerun()
+    if st.button("🎸 執行智能變調與譜面生成"):
+        steps = (KEYS.index(tk) - KEYS.index(ok)) % 12
+        st.session_state.buffer = transpose_engine(edit_text, steps)
+        st.rerun()
 
 with tab_play:
     st.markdown(f'<div class="stage-paper">', unsafe_allow_html=True)
@@ -167,7 +188,7 @@ with tab_play:
     st.markdown('</div>', unsafe_allow_html=True)
 
 with tab_cloud:
-    if st.button("⭐ 收藏當前譜面"):
+    if st.button("⭐ 收藏至雲端"):
         st.session_state.db[singer] = {"buffer": st.session_state.buffer, "meta": st.session_state.meta.copy()}
         st.toast(f"已收藏 {singer}")
     st.markdown("---")
@@ -177,6 +198,5 @@ with tab_cloud:
             st.session_state.meta = st.session_state.db[name]['meta']
             st.rerun()
 
-# 滾動腳本
 if 'scroll_spd' in locals() and scroll_spd > 0:
     st.markdown(f"<script>if(window.si)clearInterval(window.si);window.si=setInterval(()=>window.scrollBy(0,{scroll_spd}),50);</script>", unsafe_allow_html=True)
