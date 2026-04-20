@@ -4,135 +4,174 @@ import io
 import json
 import datetime
 from docx import Document
-from docx.shared import RGBColor, Pt
 
-# --- 1. 核心規範與初始化 ---
-CHORD_COLORS = {
-    'A': (29, 78, 216), 'F': (34, 197, 94), 'E': (234, 179, 8),
-    'G': (59, 130, 246), 'C': (239, 68, 68), 'D': (249, 115, 22), 'B': (168, 85, 247)
-}
+# --- 1. 核心規範與配色 (Brett 標準) ---
 KEYS = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B']
+COLOR_MAP = {
+    'C': '#EF4444', 'D': '#F97316', 'E': '#EAB308', 'F': '#22C55E', 
+    'G': '#3B82F6', 'A': '#1D4ED8', 'B': '#A855F7'
+}
 
-st.set_page_config(page_title="Liberlive Pro Master v15.2", layout="wide")
+st.set_page_config(page_title="Liberlive AI Station v17", layout="wide")
 
-# 數據鎖定緩存 (Buffer)
+# 初始化 Session State (數據緩存鎖定)
+if 'db' not in st.session_state: st.session_state.db = {}
 if 'buffer' not in st.session_state: st.session_state.buffer = ""
-if 'my_lib' not in st.session_state: st.session_state.my_lib = {}
-if 'yt' not in st.session_state: st.session_state.yt = ""
+if 'yt_url' not in st.session_state: st.session_state.yt_url = ""
+if 'theme' not in st.session_state: st.session_state.theme = "白晝"
+if 'meta' not in st.session_state: 
+    st.session_state.meta = {"singer": "", "arranger": "Brett", "bpm": 65, "beat": "4/4", "orig": "E", "target": "C"}
 
-# --- 2. 視覺配色 CSS ---
-st.markdown("""
+# --- 2. 極致置頂與演出模式 CSS ---
+st.markdown(f"""
     <style>
-    /* 移除頂部空白，保留開關按鈕 */
-    .block-container { padding-top: 1rem !important; padding-bottom: 0rem !important; }
-    header { background-color: transparent !important; }
+    /* 移除所有頂部空白與抬頭 */
+    .block-container {{ padding-top: 0rem !important; padding-bottom: 0rem !important; }}
+    header {{ visibility: hidden !important; height: 0px !important; }}
     
-    /* 側邊欄配色 */
-    section[data-testid="stSidebar"] { background-color: #1E3A8A !important; border-right: 3px solid #FACC15; }
-    section[data-testid="stSidebar"] * { color: white !important; }
+    /* 側邊欄深藍底 */
+    section[data-testid="stSidebar"] {{ background-color: #1E3A8A !important; border-right: 2px solid #FDE047; }}
+    section[data-testid="stSidebar"] * {{ color: white !important; }}
 
-    /* 分頁標籤樣式 */
-    .stTabs [data-baseweb="tab-list"] { background-color: #1E3A8A; border-radius: 5px; padding: 2px; }
-    .stTabs [data-baseweb="tab"] { color: #22C55E !important; font-weight: bold; }
-    .stTabs [aria-selected="true"] { background-color: #FACC15 !important; color: #1E3A8A !important; }
+    /* 專業樂譜：和弦在字正上方 */
+    .chord-row {{ display: flex; flex-wrap: wrap; line-height: 2.8; margin-bottom: 10px; }}
+    .unit-box {{ display: flex; flex-direction: column; align-items: center; margin-right: 1px; min-width: 1em; }}
+    .c-tag {{ font-weight: 800; height: 1.4em; margin-bottom: -5px; }}
+    .slash-part {{ font-size: 0.6em; opacity: 0.8; font-weight: 400; }}
+    .l-tag {{ color: #000000; font-weight: 500; }}
 
-    /* 樂譜容器 (純白底彩色字) */
-    .chord-view { 
-        background-color: #FFFFFF !important; padding: 25px; border-radius: 8px; 
-        border: 2px solid #1E3A8A; line-height: 2.8; font-size: 1.8em; 
-        white-space: pre-wrap; color: #000000 !important; font-weight: 500;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-    }
-    
-    /* 演出模式 */
-    .perf-view { background-color: #000000 !important; color: #FFFFFF !important; font-size: 3.2em !important; line-height: 3.5 !important; padding: 50px !important; }
+    /* 舞台背景切換 */
+    .stage-paper {{ background: white; padding: 40px; border-radius: 12px; border: 2px solid #1E3A8A; min-height: 80vh; }}
+    .night-stage {{ background: #000000 !important; color: #ff3333 !important; border-color: #440000 !important; }}
+    .night-stage .l-tag {{ color: #cc0000 !important; }}
 
-    /* 和弦染色規則 */
-    .c-A { color: #1D4ED8 !important; font-weight: 800; } .c-F { color: #16A34A !important; font-weight: 800; }
-    .c-E { color: #CA8A04 !important; font-weight: 800; } .c-G { color: #2563EB !important; font-weight: 800; }
-    .c-C { color: #DC2626 !important; font-weight: 800; } .c-D { color: #EA580C !important; font-weight: 800; }
-    .c-B { color: #9333EA !important; font-weight: 800; }
-    
-    .section-tag { background: #FDE047; color: #1E3A8A; padding: 2px 12px; border-radius: 4px; font-weight: bold; font-size: 0.7em; margin-top: 15px; }
+    /* 置頂進度條 (Song Map) */
+    .song-map {{ display: flex; gap: 4px; padding: 5px 0; }}
+    .map-step {{ flex: 1; height: 10px; border-radius: 5px; background: #E2E8F0; text-align: center; font-size: 9px; line-height: 10px; color: #1E3A8A; }}
+    .map-step.active {{ background: #FDE047; font-weight: bold; border: 1px solid #1E3A8A; }}
     </style>
     """, unsafe_allow_html=True)
 
-# --- 3. 核心處理引擎 ---
+# --- 3. 核心運算引擎 ---
 def transpose_chord(chord, steps):
-    if any(x in chord for x in ['Drum', 'Intro', 'Verse', 'Chorus', 'Bridge']): return chord
-    m = re.match(r"([A-G][#b]?)", chord)
-    if not m: return chord
-    root, suffix = m.group(1), chord[len(m.group(1)):]
-    lookup = [k if k not in ['Db','Eb','Gb','Ab','Bb'] else {'Db':'C#','Eb':'D#','Gb':'F#','Ab':'G#','Bb':'A#'}[k] for k in KEYS]
-    r = {'Db':'C#','Eb':'D#','Gb':'F#','Ab':'G#','Bb':'A#'}.get(root, root)
-    if r in lookup:
-        return KEYS[(lookup.index(r) + steps) % 12] + suffix
+    def _trans(c_part):
+        m = re.match(r"([A-G][#b]?)(.*)", c_part)
+        if not m: return c_part
+        root, suffix = m.group(1), m.group(2)
+        norm = {'Db':'C#', 'Eb':'D#', 'Gb':'F#', 'Ab':'G#', 'Bb':'A#'}
+        r = norm.get(root, root)
+        if r in KEYS:
+            return KEYS[(KEYS.index(r) + steps) % 12] + suffix
+        return c_part
+    # 支援複合和弦 G/B 同步變調
+    return "/".join([_trans(p) for p in chord.split('/')])
+
+def split_chord_html(chord):
+    if '/' in chord:
+        base, slash = chord.split('/')
+        return f'{base}<span class="slash-part">/{slash}</span>'
     return chord
 
-def render_html_master(text):
-    if not text: return "<div style='text-align:center; color:gray; padding:30px;'>目前無內容</div>"
-    text = re.sub(r'\[(前奏|Intro|主歌|Verse|副歌|Chorus|間奏|Bridge|結尾|Outro)\]', r'<div class="section-tag">📍 \1</div>', text)
-    parts = re.split(r'(\[[^\]]+\])', text)
-    res, cur_cls = "", ""
-    for p in parts:
-        if p.startswith('[') and p.endswith(']'):
-            if 'div' in p: res += p; continue
-            char = p.split('/')[0][1].upper()
-            cur_cls = f"c-{char}"
-            res += f'<span class="{cur_cls}">{p}'
-        else:
-            res += f'{p}</span>' if cur_cls else p
-    return res
+def get_chord_color(chord):
+    if not chord: return "transparent"
+    # 取第一個字母
+    root = chord[0].upper()
+    return COLOR_MAP.get(root, "#000")
 
 # --- 4. 介面呈現 ---
-st.sidebar.title("🎸 Brett Pro v15.2")
-view_mode = st.sidebar.radio("⏱️ 模式選擇", ["工作站模式", "演出模式"])
-scroll_spd = st.sidebar.slider("📜 自動滾動", 0, 15, 0)
+with st.sidebar:
+    st.markdown("### 🎬 YouTube 播放器")
+    st.session_state.yt_url = st.text_input("網址連結", value=st.session_state.yt_url)
+    if st.session_state.yt_url: st.video(st.session_state.yt_url)
+    
+    st.markdown("---")
+    st.session_state.theme = st.radio("🌗 視覺主題", ["白晝模式", "演出黑夜", "低對比紅黑"])
+    c_size = st.slider("和弦大小", 10, 50, 22)
+    l_size = st.slider("歌詞大小", 10, 50, 26)
+    
+    st.markdown("---")
+    st.markdown("### 📸 OCR 圖片轉譜 (AI 預留)")
+    st.file_uploader("上傳樂譜照片", type=['png','jpg','jpeg'])
 
-# 置頂設定列
-c1, c2, c3, c4 = st.columns([1,1,1,2])
-with c1: ok = st.selectbox("原調", KEYS)
-with c2: tk = st.selectbox("目標調", KEYS, index=6)
-with c3: bpm = st.number_input("BPM", 40, 240, 90)
-with c4: st.write("")
+# 置頂控制列
+cm1, cm2, cm3, cm4, cm5 = st.columns(5)
+with cm1: ok = st.selectbox("原調", KEYS, index=KEYS.index(st.session_state.meta['orig']))
+with cm2: tk = st.selectbox("目標調", KEYS, index=KEYS.index(st.session_state.meta['target']))
+with cm3: bpm = st.number_input("BPM", 20, 250, st.session_state.meta['bpm'])
+with cm4: beat = st.text_input("拍號", value=st.session_state.meta['beat'])
+with cm5: singer = st.text_input("曲名/歌手", value=st.session_state.meta['singer'])
 
-if view_mode == "演出模式":
-    st.markdown(f'<div class="chord-view perf-view">{render_html_master(st.session_state.buffer)}</div>', unsafe_allow_html=True)
-else:
-    t1, t2, t3 = st.tabs(["智能轉譜", "影音練習", "收藏曲庫"])
+st.session_state.meta.update({"orig": ok, "target": tk, "bpm": bpm, "beat": beat, "singer": singer})
 
-    with t1:
-        edit_col, view_col = st.columns([1, 1])
-        with edit_col:
-            song_name = st.text_input("歌曲標題", "New Song")
-            # 關鍵修復：移除 on_change，直接使用 value 綁定 buffer
-            st.session_state.buffer = st.text_area("內容輸入區", height=450, value=st.session_state.buffer)
+# 段落進度條
+sections = re.findall(r'\[(前奏|Intro|主歌|Verse|副歌|Chorus|間奏|Bridge|結尾|Outro)\]', st.session_state.buffer)
+if sections:
+    st.markdown('<div class="song-map">', unsafe_allow_html=True)
+    for s in sections:
+        st.markdown(f'<div class="map-step active">{s}</div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+tab_edit, tab_play, tab_cloud = st.tabs(["🎵 智能樂譜看板", "🎤 演出模式", "📁 雲端曲庫"])
+
+with tab_edit:
+    col_in, col_out = st.columns([1, 1])
+    with col_in:
+        raw_input = st.text_area("輸入 [C]和弦 歌詞內容", value=st.session_state.buffer, height=450)
+        if st.button("🚀 執行變調並變色"):
+            steps = (KEYS.index(tk) - KEYS.index(ok)) % 12
+            st.session_state.buffer = re.sub(r'\[([^\]]+)\]', lambda m: f"[{transpose_chord(m.group(1), steps)}]", raw_input)
+            st.rerun()
+    with col_out:
+        st.markdown("### ⚙️ 編輯輔助預覽")
+        st.info("請在演出模式查看完整排版效果")
+
+with tab_play:
+    # 舞台顯示邏輯
+    theme_cls = "night-stage" if "夜" in st.session_state.theme or "紅" in st.session_state.theme else ""
+    st.markdown(f'<div class="stage-paper {theme_cls}">', unsafe_allow_html=True)
+    
+    if st.session_state.buffer:
+        st.markdown(f"#### {singer} | BPM: {bpm} | {beat}")
+        lines = st.session_state.buffer.split('\n')
+        for line in lines:
+            if line.strip().startswith('['):
+                st.markdown(f'<div style="color:#1D4ED8; font-weight:bold; border-bottom:1px solid #DDD; margin:10px 0;">📍 {line}</div>', unsafe_allow_html=True)
+                continue
             
-            btn_col1, btn_col2 = st.columns(2)
-            if btn_col1.button("🚀 執行轉換"):
-                steps = (KEYS.index(tk) - KEYS.index(ok)) % 12
-                st.session_state.buffer = re.sub(r'\[([^\]]+)\]', lambda m: transpose_chord(m.group(1), steps), st.session_state.buffer)
-                st.rerun()
-            if btn_col2.button("⭐ 收藏此曲"):
-                st.session_state.my_lib[song_name] = {"content": st.session_state.buffer}
-                st.toast("✅ 已收藏")
-        with view_col:
-            st.markdown(f'<div class="chord-view">{render_html_master(st.session_state.buffer)}</div>', unsafe_allow_html=True)
+            # 和弦對齊文字渲染
+            st.markdown('<div class="chord-row">', unsafe_allow_html=True)
+            parts = re.split(r'(\[[^\]]+\])', line)
+            pending_chord = ""
+            for p in parts:
+                if p.startswith('[') and p.endswith(']'):
+                    pending_chord = p[1:-1]
+                else:
+                    for char in p:
+                        color = get_chord_color(pending_chord)
+                        display_c = split_chord_html(pending_chord)
+                        st.markdown(f"""
+                        <div class="unit-box">
+                            <span class="c-tag" style="color:{color}; font-size:{c_size}px;">{display_c}</span>
+                            <span class="l-tag" style="font-size:{l_size}px;">{char}</span>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        pending_chord = ""
+            st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    with t2:
-        st.session_state.yt = st.text_input("YouTube 網址", value=st.session_state.yt)
-        if st.session_state.yt:
-            st.video(st.session_state.yt)
-        st.markdown(f'<div class="chord-view">{render_html_master(st.session_state.buffer)}</div>', unsafe_allow_html=True)
+with tab_cloud:
+    st.subheader("📁 個人雲端收藏")
+    if st.button("⭐ 收藏當前譜面"):
+        st.session_state.db[singer + "_" + tk] = {"buffer": st.session_state.buffer, "meta": st.session_state.meta.copy()}
+        st.toast("✅ 已存入本地雲端緩存")
+    
+    st.markdown("---")
+    for key, val in st.session_state.db.items():
+        if st.button(f"📖 載入曲目: {key}"):
+            st.session_state.buffer = val['buffer']
+            st.session_state.meta = val['meta']
+            st.rerun()
 
-    with t3:
-        if st.session_state.my_lib:
-            for name in st.session_state.my_lib.keys():
-                if st.button(f"📖 載入 {name}"):
-                    st.session_state.buffer = st.session_state.my_lib[name]['content']
-                    st.rerun()
-        else: st.info("曲庫尚無內容")
-
-# JavaScript 滾動
+# 自動滾動
 if scroll_spd > 0:
     st.markdown(f"<script>if(window.si)clearInterval(window.si);window.si=setInterval(()=>window.scrollBy(0,{scroll_spd}),50);</script>", unsafe_allow_html=True)
