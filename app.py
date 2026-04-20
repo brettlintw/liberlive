@@ -7,83 +7,75 @@ import datetime
 # --- 1. 核心規範與 Brett 專屬 1-7 級配色 ---
 KEYS = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B']
 COLOR_MAP = {
-    'C': '#FF0000', # 1 紅
-    'D': '#FF8C00', # 2 橘
-    'E': '#FFD700', # 3 黃
-    'F': '#00FF00', # 4 綠
-    'G': '#1E90FF', # 5 藍
-    'A': '#0000FF', # 6 深藍
-    'B': '#A020F0', # 7 紫
+    'C': '#FF0000', 'D': '#FF8C00', 'E': '#FFD700', 'F': '#00FF00', 
+    'G': '#1E90FF', 'A': '#0000FF', 'B': '#A020F0'
 }
 
-st.set_page_config(page_title="Liberlive Pro Master v17.4", layout="wide")
+st.set_page_config(page_title="Liberlive Pro Station v17.5", layout="wide")
 
-# --- 2. 初始化 Session (防止報錯) ---
+# --- 2. 初始化 Session (數據安全鎖定) ---
 if 'db' not in st.session_state: st.session_state.db = {}
 if 'buffer' not in st.session_state: st.session_state.buffer = ""
 if 'yt_url' not in st.session_state: st.session_state.yt_url = ""
 if 'meta' not in st.session_state: 
     st.session_state.meta = {"singer": "", "arranger": "Brett", "bpm": 65, "beat": "4/4", "orig": "E", "target": "C"}
 
-# --- 3. 極致置頂與響應式 CSS ---
+# --- 3. 側邊欄控制 (提前定義變數防止 NameError) ---
+with st.sidebar:
+    st.markdown("### 🎬 YouTube 聯動播放")
+    st.session_state.yt_url = st.text_input("網址連結", value=st.session_state.yt_url, label_visibility="collapsed")
+    if st.session_state.yt_url: st.video(st.session_state.yt_url)
+    
+    st.markdown("---")
+    # 關鍵修正：將主題選擇與 session_state 綁定
+    theme_choice = st.radio("🌗 舞台視覺主題", ["普通白晝", "演出黑夜", "低對比紅黑"], key="app_theme")
+    c_size = st.slider("和弦字體大小", 10, 80, 24)
+    l_size = st.slider("歌詞字體大小", 10, 80, 28)
+    scroll_spd = st.slider("📜 自動捲動速度", 0, 20, 0)
+
+# --- 4. 動態視覺 CSS ---
+# 根據主題選擇動態調整背景與文字顏色
+theme_css = ""
+if theme_choice == "演出黑夜":
+    theme_css = "background-color: #000000 !important; color: #FFFFFF !important;"
+    paper_style = "background: #000000 !important; border-color: #440000 !important;"
+    text_color = "#FFFFFF"
+elif theme_choice == "低對比紅黑":
+    theme_css = "background-color: #1a0000 !important; color: #CC0000 !important;"
+    paper_style = "background: #1a0000 !important; border-color: #660000 !important;"
+    text_color = "#CC0000"
+else: # 普通白晝
+    theme_css = "background-color: #F8FAFC !important; color: #000000 !important;"
+    paper_style = "background: #FFFFFF !important; border-color: #1E3A8A !important;"
+    text_color = "#000000"
+
 st.markdown(f"""
     <style>
-    /* 移除頂部空白與防止橫向溢出 */
-    .block-container {{ 
-        padding-top: 0rem !important; 
-        padding-bottom: 0rem !important; 
-        max-width: 100%;
-        overflow-x: hidden;
-    }}
-    header {{ visibility: hidden !important; height: 0px !important; }}
-    footer {{ visibility: hidden !important; }}
+    .stApp {{ {theme_css} }}
+    .block-container {{ padding-top: 0rem !important; overflow-x: hidden; }}
+    header, footer {{ visibility: hidden !important; }}
 
-    /* 側邊欄配色 */
     section[data-testid="stSidebar"] {{ background-color: #1E3A8A !important; border-right: 2px solid #FDE047; }}
     section[data-testid="stSidebar"] * {{ color: white !important; }}
     
-    /* 樂譜渲染：垂直鎖定對齊 */
-    .chord-row {{ 
-        display: flex; 
-        flex-wrap: wrap; 
-        line-height: 2.8; 
-        margin-bottom: 12px;
-        width: 100%;
-    }}
-    .unit-box {{ 
-        display: flex; 
-        flex-direction: column; 
-        align-items: center; 
-        margin-right: 1px; 
-        min-width: 0.8em; 
-    }}
-    .c-tag {{ font-weight: 900; height: 1.5em; margin-bottom: -10px; font-family: 'Arial', sans-serif; }}
-    .slash-part {{ font-size: 0.6em; opacity: 0.8; font-weight: normal; }}
-    .l-tag {{ color: #000000; font-weight: 600; }}
-
-    /* 舞台背景模式 */
     .stage-paper {{ 
-        background: white; 
-        padding: 30px; 
-        border-radius: 15px; 
-        border: 2px solid #1E3A8A; 
-        min-height: 85vh;
-        width: 100%;
+        {paper_style}
+        padding: 30px; border-radius: 15px; border: 2px solid; min-height: 85vh; width: 100%; 
     }}
-    .night-stage {{ background: #000000 !important; border-color: #440000 !important; }}
-    .night-stage .l-tag {{ color: #FFFFFF !important; }}
-    .red-stage {{ background: #1a0000 !important; border-color: #660000 !important; }}
-    .red-stage .l-tag {{ color: #CC0000 !important; }}
+    
+    .chord-row {{ display: flex; flex-wrap: wrap; line-height: 2.8; margin-bottom: 12px; width: 100%; }}
+    .unit-box {{ display: flex; flex-direction: column; align-items: center; margin-right: 2px; min-width: 0.8em; }}
+    .c-tag {{ font-weight: 900; height: 1.5em; margin-bottom: -10px; }}
+    .slash-part {{ font-size: 0.6em; opacity: 0.8; font-weight: normal; }}
+    .l-tag {{ color: {text_color} !important; font-weight: 600; }}
 
-    /* UI 元件美化 */
     .stTabs [data-baseweb="tab-list"] {{ background-color: #1E3A8A; border-radius: 10px; padding: 4px; }}
     .stTabs [data-baseweb="tab"] {{ color: #22C55E !important; font-weight: bold; }}
     .stTabs [aria-selected="true"] {{ background-color: #FDE047 !important; color: #1E3A8A !important; }}
-    div.stButton > button {{ background-color: #22C55E !important; color: white !important; width: 100%; border-radius: 8px; }}
     </style>
     """, unsafe_allow_html=True)
 
-# --- 4. 核心邏輯 ---
+# --- 5. 核心邏輯與置頂控制 ---
 def transpose_chord(chord, steps):
     def _trans(c_part):
         m = re.match(r"([A-G][#b]?)(.*)", c_part)
@@ -107,19 +99,6 @@ def get_chord_color(chord):
     root = chord[0].upper()
     return COLOR_MAP.get(root, "#000000")
 
-# --- 5. 側邊欄控制 ---
-with st.sidebar:
-    st.markdown("### 🎬 YouTube 聯動播放")
-    st.session_state.yt_url = st.text_input("網址連結", value=st.session_state.yt_url, label_visibility="collapsed")
-    if st.session_state.yt_url: st.video(st.session_state.yt_url)
-    
-    st.markdown("---")
-    theme_choice = st.radio("🌗 舞台視覺主題", ["普通白晝", "演出黑夜", "低對比紅黑"])
-    c_size = st.slider("和弦字體大小", 10, 80, 24)
-    l_size = st.slider("歌詞字體大小", 10, 80, 28)
-    scroll_spd = st.slider("📜 自動捲動速度", 0, 20, 0) # 確保變數在此被定義
-
-# --- 6. 置頂設定列 ---
 c1, c2, c3, c4, c5 = st.columns(5)
 with c1: ok = st.selectbox("原調", KEYS, index=KEYS.index(st.session_state.meta['orig']))
 with c2: tk = st.selectbox("目標調", KEYS, index=KEYS.index(st.session_state.meta['target']))
@@ -134,22 +113,17 @@ tab_edit, tab_play, tab_cloud = st.tabs(["🎵 智能轉譜", "🎤 演出模式
 with tab_edit:
     col_in, col_out = st.columns([1, 1])
     with col_in:
-        raw_input = st.text_area("輸入 [C] 格式歌詞", value=st.session_state.buffer, height=450, placeholder="例如: [C]窗外的[G]麻雀...")
+        raw_input = st.text_area("輸入歌詞與 [和弦]", value=st.session_state.buffer, height=450)
         if st.button("🚀 執行變調與變色"):
             if raw_input:
                 steps = (KEYS.index(tk) - KEYS.index(ok)) % 12
                 st.session_state.buffer = re.sub(r'\[([^\]]+)\]', lambda m: f"[{transpose_chord(m.group(1), steps)}]", raw_input)
                 st.rerun()
     with col_out:
-        st.markdown("### ⚙️ 快速預覽")
-        st.info("💡 專業對齊效果請切換至『演出模式』查看")
+        st.info("請至『演出模式』查看完整主題顯色效果")
 
 with tab_play:
-    theme_cls = ""
-    if theme_choice == "演出黑夜": theme_cls = "night-stage"
-    elif theme_choice == "低對比紅黑": theme_cls = "red-stage"
-    
-    st.markdown(f'<div class="stage-paper {theme_cls}">', unsafe_allow_html=True)
+    st.markdown(f'<div class="stage-paper">', unsafe_allow_html=True)
     if st.session_state.buffer:
         st.markdown(f"#### {singer} | BPM: {bpm} | {beat}")
         lines = st.session_state.buffer.split('\n')
@@ -180,9 +154,9 @@ with tab_play:
     st.markdown('</div>', unsafe_allow_html=True)
 
 with tab_cloud:
-    if st.button("⭐ 收藏至本地曲庫"):
+    if st.button("⭐ 收藏當前譜面"):
         st.session_state.db[singer] = {"buffer": st.session_state.buffer, "meta": st.session_state.meta.copy()}
-        st.success(f"✅ 已成功收藏: {singer}")
+        st.success(f"已收藏 {singer}")
     
     st.markdown("---")
     for name, val in st.session_state.db.items():
@@ -191,6 +165,6 @@ with tab_cloud:
             st.session_state.meta = val['meta']
             st.rerun()
 
-# 最終 JavaScript 控制 (修復 NameError)
+# 最終滾動 JS
 if 'scroll_spd' in locals() and scroll_spd > 0:
     st.markdown(f"<script>if(window.si)clearInterval(window.si);window.si=setInterval(()=>window.scrollBy(0,{scroll_spd}),50);</script>", unsafe_allow_html=True)
